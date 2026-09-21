@@ -5,41 +5,58 @@ import { getPlayerPositionOffset } from '../utils/pathCalc.js';
 export class BoardView {
   constructor(container) {
     this.container = container;
-    this.hoveredSpace = null;
   }
 
   render() {
     this.container.innerHTML = `
       <div class="board-wrapper">
-        <!-- SVG Canvas Vectorial (Coordenadas Virtuales 1000x750 que coinciden exactamente con la imagen original) -->
+        <!-- Canvas SVG Vectorial Pro (Coordenadas Virtuales 1000 x 750) -->
         <svg id="board-svg" viewBox="0 0 1000 750" preserveAspectRatio="xMidYMid meet">
           <defs>
-            <!-- Filtro de Neón y Brillo de Selección -->
-            <filter id="tile-glow" x="-30%" y="-30%" width="160%" height="160%">
-              <feGaussianBlur stdDeviation="3" result="blur" />
-              <feComposite in="SourceGraphic" in2="blur" operator="over" />
+            <!-- Filtros de Resplandor Neón -->
+            <filter id="glow-cyan-rail" x="-20%" y="-20%" width="140%" height="140%">
+              <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#00f0ff" flood-opacity="0.7"/>
+            </filter>
+            
+            <filter id="glow-gold-token" x="-40%" y="-40%" width="180%" height="180%">
+              <feDropShadow dx="0" dy="0" stdDeviation="6" flood-color="#ffd700" flood-opacity="0.9"/>
             </filter>
 
-            <filter id="token-glow" x="-50%" y="-50%" width="200%" height="200%">
-              <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#00f0ff" flood-opacity="0.8"/>
-            </filter>
+            <!-- Gradientes Neón para Casillas de la Ruta -->
+            <linearGradient id="tile-grad-white" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#ffffff"/>
+              <stop offset="100%" stop-color="#d6d6f5"/>
+            </linearGradient>
+
+            <linearGradient id="tile-grad-orange" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#ff7700"/>
+              <stop offset="100%" stop-color="#cc2200"/>
+            </linearGradient>
+
+            <linearGradient id="tile-grad-cyan" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#00f0ff"/>
+              <stop offset="100%" stop-color="#0055ff"/>
+            </linearGradient>
           </defs>
 
-          <!-- 1. IMAGEN DE FONDO: TABLERO FÍSICO ORIGINAL DE LOS 90S -->
-          <image href="/board_original.jpg" x="0" y="0" width="1000" height="750" preserveAspectRatio="none" />
+          <!-- 1. IMAGEN DE ARTE ESPACIAL EN ALTA DEFINICIÓN -->
+          <image href="/board_art.png" x="0" y="0" width="1000" height="750" preserveAspectRatio="none" />
 
-          <!-- 2. CAPA INVISIBLE / HIGHLIGHT DE CASILLAS INTERACTIVAS -->
-          <g id="spaces-interactive-layer">
-            ${SPACES.map(space => this.renderInteractiveTile(space)).join('')}
+          <!-- 2. LÍNEA CONTINUA GUÍA DE LA RUTA EN ESTILO ESCALERA -->
+          <path d="${this.buildPathString()}" fill="none" stroke="rgba(255, 255, 255, 0.15)" stroke-width="22" stroke-linecap="round" stroke-linejoin="round" />
+
+          <!-- 3. CASILLAS RECTANGULARES INTERACTIVAS -->
+          <g id="spaces-layer">
+            ${SPACES.map(space => this.renderTile(space)).join('')}
           </g>
 
-          <!-- 3. CAPA DE PEONES / NAVES DE JUGADORES SUPERPUESTAS -->
+          <!-- 4. CAPA DE FICHAS Y NAVES DE JUGADORES -->
           <g id="tokens-layer">
-            <!-- Renderizado dinámico de naves -->
+            <!-- Renderizado dinámico de peones -->
           </g>
         </svg>
 
-        <!-- Tooltip flotante para casillas -->
+        <!-- Tooltip flotante interactivo -->
         <div id="space-tooltip" class="space-tooltip hidden"></div>
       </div>
     `;
@@ -48,28 +65,59 @@ export class BoardView {
     this.updateTokens();
   }
 
-  renderInteractiveTile(space) {
+  buildPathString() {
+    return SPACES.map((s, i) => `${i === 0 ? 'M' : 'L'} ${s.pos.x} ${s.pos.y}`).join(' ');
+  }
+
+  renderTile(space) {
     const isStart = space.type === "start";
     const isFinish = space.type === "finish";
 
-    let highlightStroke = "rgba(255, 255, 255, 0.2)";
-    if (space.color === "orange") highlightStroke = "rgba(255, 170, 0, 0.3)";
-    if (space.color === "cyan") highlightStroke = "rgba(0, 240, 255, 0.3)";
+    let fillGrad = "url(#tile-grad-white)";
+    let strokeCol = "#ffffff";
+    let textCol = "#0b0c26";
+
+    if (space.color === "orange") {
+      fillGrad = "url(#tile-grad-orange)";
+      strokeCol = "#ffaa00";
+      textCol = "#ffffff";
+    } else if (space.color === "cyan") {
+      fillGrad = "url(#tile-grad-cyan)";
+      strokeCol = "#00ffff";
+      textCol = "#ffffff";
+    }
+
+    if (isStart) {
+      fillGrad = "#33ff77";
+      strokeCol = "#ffffff";
+      textCol = "#003311";
+    } else if (isFinish) {
+      fillGrad = "#ffd700";
+      strokeCol = "#ffffff";
+      textCol = "#000000";
+    }
+
+    let iconStr = "";
+    if (space.type === "question") iconStr = "❓";
+    else if (space.type === "boost") iconStr = "⚡";
+    else if (space.type === "hazard") iconStr = "⚠️";
+    else if (space.type === "teleport") iconStr = "🌀";
 
     return `
       <g class="space-tile-group" data-id="${space.id}" transform="translate(${space.pos.x}, ${space.pos.y}) rotate(${space.angle})">
-        <!-- Hotspot interactivo semi-transparente sobre la casilla impresa -->
-        <rect x="-14" y="-10" width="28" height="20" rx="3" ry="3" 
-              fill="rgba(0, 0, 0, 0.05)" 
-              stroke="${highlightStroke}" 
-              stroke-width="1.5" 
-              class="space-rect-hotspot" />
+        <!-- Casilla Rectangular Vistosa tipo Escalera -->
+        <rect x="-16" y="-11" width="32" height="22" rx="4" ry="4" 
+              fill="${fillGrad}" 
+              stroke="${strokeCol}" 
+              stroke-width="2" 
+              class="space-rect-tile" />
         
-        <!-- Indicador flotante sutil con número de casilla -->
-        <circle cx="-10" cy="-8" r="5" fill="rgba(0,0,0,0.6)" stroke="${highlightStroke}" stroke-width="0.8"/>
-        <text x="-10" y="-6" text-anchor="middle" fill="#ffffff" font-size="6" font-weight="bold" font-family="sans-serif">
-          ${isStart ? 'S' : isFinish ? '★' : space.id}
+        <!-- Texto con Número de Casilla o Label -->
+        <text x="0" y="${iconStr ? '-1' : '3'}" text-anchor="middle" fill="${textCol}" font-size="${isFinish ? '8' : '9'}" font-weight="900" font-family="sans-serif">
+          ${isStart ? 'INICIO' : isFinish ? 'META' : space.id}
         </text>
+
+        ${iconStr ? `<text x="0" y="7" text-anchor="middle" font-size="7">${iconStr}</text>` : ''}
       </g>
     `;
   }
@@ -112,7 +160,6 @@ export class BoardView {
 
     layer.innerHTML = "";
 
-    // Agrupar jugadores por casilla para que no se encima uno sobre otro
     const playersBySpace = {};
     gameState.players.forEach(p => {
       if (!playersBySpace[p.position]) playersBySpace[p.position] = [];
@@ -134,20 +181,19 @@ export class BoardView {
       tokenG.setAttribute("transform", `translate(${posX}, ${posY})`);
 
       tokenG.innerHTML = `
-        <!-- Anillo de resplandor para el jugador en turno -->
-        ${isCurrentTurn ? `<circle cx="0" cy="0" r="18" fill="none" stroke="${player.color}" stroke-width="2.5" class="pulse-ring"/>` : ''}
+        ${isCurrentTurn ? `<circle cx="0" cy="0" r="20" fill="none" stroke="${player.color}" stroke-width="2.5" class="pulse-ring"/>` : ''}
 
-        <!-- Fondo circular de la ficha -->
-        <circle cx="0" cy="0" r="14" fill="rgba(8, 10, 24, 0.85)" stroke="${player.color}" stroke-width="2" />
+        <!-- Base Ficha Jugador -->
+        <circle cx="0" cy="0" r="14" fill="rgba(8, 10, 24, 0.9)" stroke="${player.color}" stroke-width="2.5" />
 
-        <!-- Dibujo vectorial exacto de la nave espacial (30x30px perfectamente escalada) -->
+        <!-- Nave Espacial Miniatura -->
         <g transform="translate(-15, -15)">
           ${player.ship.path}
         </g>
 
-        <!-- Placa distintiva de Jugador (P1, P2, P3, P4) -->
+        <!-- Etiqueta P1, P2, P3, P4 -->
         <g transform="translate(10, -10)">
-          <circle cx="0" cy="0" r="7" fill="${player.color}" stroke="#ffffff" stroke-width="1"/>
+          <circle cx="0" cy="0" r="7.5" fill="${player.color}" stroke="#ffffff" stroke-width="1.2"/>
           <text x="0" y="3" text-anchor="middle" fill="#ffffff" font-size="8" font-weight="900" font-family="sans-serif">P${player.id}</text>
         </g>
       `;
